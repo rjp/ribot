@@ -4,6 +4,9 @@ require 'xmpp4r/muc/helper/simplemucclient'
 include Jabber
 require 'thread'
 
+require 'uri-find'
+require 'meta-title'
+
 $bot = nil
 threads = {}
 $options = { :myjid => 'mucg@localhost/bot', :mypass => 'test', :whoto => 'fish@muc.localhost/bot' }
@@ -18,29 +21,30 @@ threads['muc'] = Thread.new {
     m = Jabber::MUC::SimpleMUCClient.new(cl)
     m.add_message_callback do |msg|
         if msg.type == :groupchat and msg.from != $options[:whoto] then
-            puts "+ #{msg.from} #{msg.body}"
-            # look for any urls, enqueue them onto q_urls
-            q_urls.enq [msg.from, msg.body]
+            print "+ #{msg.from} #{msg.body}\n"
+            urls = rule(msg.body, 'http')
+            urls.each do |url|
+	            # look for any urls, enqueue them onto q_urls
+                print "MUC enqueuing [#{url}]\n"
+	            q_urls.enq [msg.from, url]
+            end
         end
     end
     m.join($options[:whoto])
-    m.say "HELLO SIR!"
     Thread.current['bot'] = m
 }
 
 threads['meta'] = Thread.new {
     i = 0
     loop do
-        print "MT waiting for an item\n"
+        print "MTA waiting for an item\n"
         obj = q_urls.deq
         puts "meta for " + obj.join(', ') + " b=#{$bot}"
         a = Thread.new { 
-            print "NT sleeping for 5\n"
-            sleep(5)
-            print "NT reporting\n"
-            threads['muc']['bot'].say "monkey #{i} #{obj[1]}"
+            t = title_from_uri(obj[1])
+            threads['muc']['bot'].say "#{i} #{t}"
         }
-        print "MT incrementing and relooping\n"
+        print "MTA incrementing and relooping\n"
         i = i + 1
     end
 }
