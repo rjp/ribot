@@ -20,7 +20,14 @@ threads['muc'] = Thread.new {
     cl.auth($options[:mypass])
     m = Jabber::MUC::SimpleMUCClient.new(cl)
     m.add_message_callback do |msg|
-        if msg.type == :groupchat and msg.from != $options[:whoto] then
+        old = nil
+        msg.each_element('x') { |x|
+          if x.kind_of?(Delay::XDelay)
+            old = 1
+          end
+        }
+
+        if old.nil? and msg.type == :groupchat and msg.from != $options[:whoto] then
             print "+ #{msg.from} #{msg.body}\n"
             urls = rule(msg.body, 'http')
             urls.each do |url|
