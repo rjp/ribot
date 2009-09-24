@@ -6,6 +6,9 @@ require 'thread'
 require 'dbi'
 require 'uri-find'
 require 'meta-title'
+require 'htmlentities'
+
+$KCODE='u'
 
 $dbh = DBI.connect('DBI:sqlite3:/home/rjp/.ribot.db', '', '')
 $dbh['AutoCommit'] = false
@@ -44,6 +47,7 @@ threads['muc'] = Thread.new {
     Thread.current['bot'] = m
 }
 
+$coder = HTMLEntities.new
 threads['meta'] = Thread.new {
     i = 0
     loop do
@@ -69,7 +73,7 @@ threads['meta'] = Thread.new {
             domain = obj[1][1].host.split('.').last(3).join('.')
 ## 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
             response = "#{my_id}: [#{domain}]: #{t}"
-            threads['muc']['bot'].say response
+            threads['muc']['bot'].say $coder.decode(response)
         }
         print "MTA incrementing and relooping\n"
         i = i + 1
