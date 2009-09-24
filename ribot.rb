@@ -32,8 +32,17 @@ p $options
 
 $KCODE='u'
 
-$dbh = DBI.connect('DBI:sqlite3:/home/rjp/.ribot.db', '', '')
+$dbh = DBI.connect($options[:dsn], '', '')
 $dbh['AutoCommit'] = false
+
+$get_last_id = nil
+case $options[:dsn]
+    when /sqlite/i
+        $get_last_id = "SELECT last_insert_rowid()"
+    when /pg/i
+        $get_last_id = "SELECT CURRVAL('url_seq')"
+end
+p $get_last_id
 
 $bot = nil
 threads = {}
@@ -86,9 +95,7 @@ threads['meta'] = Thread.new {
                      VALUES (?, DATETIME('NOW'), ?, ?, ?)",
                     myobj[1][0], myobj[0], 0, t
                 )
-                last_id = $dbh.select_one(
-                    "SELECT last_insert_rowid()"
-                )
+                last_id = $dbh.select_one($get_last_id)
             end
             my_id = last_id[0]
             domain = obj[1][1].host.split('.').last(3).join('.')
