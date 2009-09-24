@@ -7,6 +7,28 @@ require 'dbi'
 require 'uri-find'
 require 'meta-title'
 require 'htmlentities'
+require 'trollop'
+require 'yaml'
+
+$options = Trollop::options do
+    opt :myjid, "My JID", :type => :string
+    opt :mypass, "My Pass", :type => :string
+    opt :whoto, "Target MUC", :type => :string
+    opt :config, "Config file", :default => ENV['HOME']+'/.ribot'
+end
+
+begin
+	config = YAML::load(open($options[:config]))
+
+	# merge the whole of the config file into the $options hash
+	config.each { |k,v|
+	    $options[k.to_sym] = v if $options[k.to_sym].nil?
+	}
+rescue => e
+end
+
+
+p $options
 
 $KCODE='u'
 
@@ -15,7 +37,6 @@ $dbh['AutoCommit'] = false
 
 $bot = nil
 threads = {}
-$options = { :myjid => 'mucg@localhost/bot', :mypass => 'test', :whoto => 'fish@muc.localhost/bot' }
 
 q_urls = Queue.new
 q_meta = Queue.new
