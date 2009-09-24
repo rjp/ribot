@@ -66,7 +66,7 @@ threads['meta'] = Thread.new {
                 )
             end
             my_id = last_id[0]
-            domain = obj[1][1].host.split('.')[-3..-1].join('.')
+            domain = obj[1][1].host.split('.').last(3).join('.')
 ## 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
             response = "#{my_id}: [#{domain}]: #{t}"
             threads['muc']['bot'].say response
