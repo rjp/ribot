@@ -9,6 +9,7 @@ require 'meta-title'
 require 'htmlentities'
 require 'trollop'
 require 'yaml'
+require 'json'
 
 $options = Trollop::options do
     opt :myjid, "My JID", :type => :string
@@ -51,6 +52,21 @@ p $get_last_id
 
 $bot = nil
 $threads = {}
+
+def deli_tags(uri, id)
+    md5 = Digest::MD5.hexdigest(uri)
+    target = "http://badges.del.icio.us/feeds/json/url/data?hash=#{md5}"
+    json = open(target).read
+    deli = JSON.load(json)[0]
+    tags = ""
+    p json
+    if deli['top_tags'].class == Hash then
+        tags = '((' << deli['top_tags'].sort_by {|k,v| v}.reverse.map{|i|i[0]}.join(', ') << '))'
+    end
+    response = "#{id}: (deli) L=#{deli['total_posts']} #{tags}"
+    $threads['muc']['bot'].say response
+end
+
 
 q_urls = Queue.new
 q_meta = Queue.new
@@ -116,6 +132,11 @@ puts "making response"
             response.gsub!("\n", ' ')
 puts "sending response"
             $threads['muc']['bot'].say $coder.decode(response)
+# do the deli tagging in another thread
+            b = Thread.new {
+                puts "deli requesting"
+                deli_tags(myobj[1][0], last_id)
+            }
         }
         print "MTA incrementing and relooping\n"
         i = i + 1
