@@ -53,13 +53,13 @@ p $get_last_id
 $bot = nil
 $threads = {}
 
+# TODO move this to its own library
 def deli_tags(uri, id)
     md5 = Digest::MD5.hexdigest(uri)
     target = "http://badges.del.icio.us/feeds/json/url/data?hash=#{md5}"
     json = open(target).read
     deli = JSON.load(json)[0]
     tags = ""
-    p json
     if deli['top_tags'].class == Hash then
         tags = '((' << deli['top_tags'].sort_by {|k,v| v}.reverse.map{|i|i[0]}.join(', ') << '))'
     end
