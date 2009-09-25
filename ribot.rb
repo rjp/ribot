@@ -86,7 +86,9 @@ threads['meta'] = Thread.new {
         puts "meta for " + obj.join(', ') + " b=#{$bot}"
         a = Thread.new {
             myobj = obj.dup
-            t = title_from_uri(myobj[1][0])
+            puts "fetching title for #{myobj[1][0]}"
+            t, supress_domain = title_from_uri(myobj[1][0])
+            puts "fetched title for #{myobj[1][0]}"
 # CREATE TABLE urls (id INTEGER PRIMARY KEY AUTOINCREMENT, url varchar(1024), wh timestamp, user varchar(256), private int, title varchar(1024));
             last_id = nil
             $dbh.transaction do
@@ -97,10 +99,16 @@ threads['meta'] = Thread.new {
                 )
                 last_id = $dbh.select_one($get_last_id)
             end
+            puts "inserted into database"
             my_id = last_id[0]
             domain = obj[1][1].host.split('.').last(3).join('.')
 ## 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
+puts "making response"
             response = "#{my_id}: [#{domain}]: #{t}"
+            if supress_domain then
+                response = "#{my_id}: #{t}"
+            end
+puts "sending response"
             threads['muc']['bot'].say $coder.decode(response)
         }
         print "MTA incrementing and relooping\n"
