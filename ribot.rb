@@ -113,6 +113,7 @@ puts "making response"
             if supress_domain then
                 response = "#{my_id}: #{t}"
             end
+            response.gsub!("\n", ' ')
 puts "sending response"
             $threads['muc']['bot'].say $coder.decode(response)
         }
