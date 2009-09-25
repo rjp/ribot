@@ -37,11 +37,15 @@ $dbh = DBI.connect($options[:dsn], '', '')
 $dbh['AutoCommit'] = false
 
 $get_last_id = nil
+$now = nil
+
 case $options[:dsn]
     when /sqlite/i
         $get_last_id = "SELECT last_insert_rowid()"
+        $now = "DATETIME('NOW')"
     when /pg/i
         $get_last_id = "SELECT CURRVAL('url_seq')"
+        $now = "NOW()"
 end
 p $get_last_id
 
@@ -94,9 +98,9 @@ threads['meta'] = Thread.new {
             last_id = nil
             $dbh.transaction do
                 $dbh.do(
-                    "INSERT INTO urls (url, wh, user, private, title)
-                     VALUES (?, DATETIME('NOW'), ?, ?, ?)",
-                    myobj[1][0], myobj[0], 0, t
+                    "INSERT INTO url (url, wh, byuser, private, title)
+                     VALUES (?, #{$now}, ?, ?, ?)",
+                    myobj[1][0], myobj[0].to_s, 0, t
                 )
                 last_id = $dbh.select_one($get_last_id)
             end
