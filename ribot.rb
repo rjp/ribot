@@ -50,12 +50,12 @@ end
 p $get_last_id
 
 $bot = nil
-threads = {}
+$threads = {}
 
 q_urls = Queue.new
 q_meta = Queue.new
 
-threads['muc'] = Thread.new {
+$threads['muc'] = Thread.new {
     cl = Jabber::Client.new(Jabber::JID.new($options[:myjid]))
     cl.connect($options[:xmpphost])
     cl.auth($options[:mypass])
@@ -83,7 +83,7 @@ threads['muc'] = Thread.new {
 }
 
 $coder = HTMLEntities.new
-threads['meta'] = Thread.new {
+$threads['meta'] = Thread.new {
     i = 0
     loop do
         print "MTA waiting for an item\n"
@@ -114,12 +114,12 @@ puts "making response"
                 response = "#{my_id}: #{t}"
             end
 puts "sending response"
-            threads['muc']['bot'].say $coder.decode(response)
+            $threads['muc']['bot'].say $coder.decode(response)
         }
         print "MTA incrementing and relooping\n"
         i = i + 1
     end
 }
 
-threads['muc'].join
-threads['meta'].join
+$threads['muc'].join
+$threads['meta'].join
