@@ -15,6 +15,7 @@ $options = Trollop::options do
     opt :mypass, "My Pass", :type => :string
     opt :whoto, "Target MUC", :type => :string
     opt :config, "Config file", :default => ENV['HOME']+'/.ribot'
+    opt :xmpphost, "XMPP host", :type => :string
 end
 
 begin
@@ -52,7 +53,7 @@ q_meta = Queue.new
 
 threads['muc'] = Thread.new {
     cl = Jabber::Client.new(Jabber::JID.new($options[:myjid]))
-    cl.connect('localhost')
+    cl.connect($options[:xmpphost])
     cl.auth($options[:mypass])
     m = Jabber::MUC::SimpleMUCClient.new(cl)
     m.add_message_callback do |msg|
