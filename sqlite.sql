@@ -3,7 +3,7 @@ CREATE TABLE url (
     url varchar(1024),
     comment varchar(1024),
     wh timestamp DEFAULT CURRENT_TIMESTAMP, 
-    userby varchar(256),
+    byuser varchar(256),
     id integer primary key autoincrement,
     idnum integer,
     private integer DEFAULT 0,
