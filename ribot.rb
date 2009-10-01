@@ -32,14 +32,17 @@ end
 
 p $options
 
+# required for nice handling of unicode
 $KCODE='u'
 
+# we use transactions for safe fetching of last-insert-id things
 $dbh = DBI.connect($options[:dsn], '', '')
 $dbh['AutoCommit'] = false
 
 $get_last_id = nil
 $now = nil
 
+# sketchy multi-database support
 case $options[:dsn]
     when /sqlite/i
         $get_last_id = "SELECT last_insert_rowid()"
@@ -53,10 +56,12 @@ p $get_last_id
 $bot = nil
 $threads = {}
 
+# incoming queue of URLs to find information about
 $q_urls = Queue.new
+# outgoing queue of things for the bot to say
 $q_meta = Queue.new
 
-# TODO move this to its own library
+# TODO move this to its own library?
 def deli_tags(uri, id)
     begin
         md5 = Digest::MD5.hexdigest(uri)
@@ -87,15 +92,19 @@ $threads['muc'] = Thread.new {
     m = Jabber::MUC::SimpleMUCClient.new(cl)
     m.add_message_callback do |msg|
         old = nil
+        # sucks that we have to implement this ourselves
         msg.each_element('x') { |x|
           if x.kind_of?(Delay::XDelay)
             old = 1
           end
         }
 
-        if old.nil? and msg.type == :groupchat and msg.from != $options[:whoto] and not msg.body.nil? then
+        if  old.nil?                      # not historical lines
+        and msg.type == :groupchat        # comes from the conference
+        and msg.from != $options[:whoto]  # we didn't say it
+        and not msg.body.nil? then        # something was said (not a topic change)
             print "+ #{msg.from} #{msg.body}\n"
-            urls = rule(msg.body, 'http')
+            urls = rule(msg.body, ['http', 'https'])
             urls.each do |url|
                 # look for any urls, enqueue them onto $q_urls
                 print "MUC enqueuing [#{url[0]}]\n"
@@ -107,6 +116,7 @@ $threads['muc'] = Thread.new {
     Thread.current['bot'] = m
 }
 
+# separate thread for things going back to the conference
 $threads['muc_say'] = Thread.new {
     loop do
         bot_says = $q_meta.deq
@@ -115,21 +125,25 @@ $threads['muc_say'] = Thread.new {
     end
 }
 
+# used to decode any HTML entities in the title into Unicode
 $coder = HTMLEntities.new
+
+# all the work of processing a URL happens in this thread
 $threads['meta'] = Thread.new {
     i = 0
     loop do
         print "MTA waiting for an item\n"
         obj = $q_urls.deq
         puts "meta for " + obj.join(', ') + " b=#{$bot}"
+        # spawn off a new thread to handle the fetching to avoid blocking
         a = Thread.new {
             begin
             myobj = obj.dup
             puts "fetching title for #{myobj[1][0]}"
             t, supress_domain = title_from_uri(myobj[1][0])
             puts "fetched title for #{myobj[1][0]}"
-# CREATE TABLE urls (id INTEGER PRIMARY KEY AUTOINCREMENT, url varchar(1024), wh timestamp, user varchar(256), private int, title varchar(1024));
             last_id = nil
+            # insert the URL and get the inserted ID
             $dbh.transaction do
                 $dbh.do(
                     "INSERT INTO url (url, wh, byuser, private, title)
@@ -139,15 +153,21 @@ $threads['meta'] = Thread.new {
                 last_id = $dbh.select_one($get_last_id)
             end
             my_id = last_id[0]
+            # last 3 parts of the hostname should be unambiguous
             domain = obj[1][1].host.split('.').last(3).join('.')
-## 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
+            # default formatting is stolen from old scribot
+            # 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
             response = "#{my_id}: [#{domain}]: #{t}"
+            # plugins can suppress the domain information because it's often unnecessary
+            # 12345: (flickr) "photo title" by photo maker
             if supress_domain then
                 response = "#{my_id}: #{t}"
             end
+            # people like guardian.co.uk insist on putting newlines in the title
             response.gsub!("\n", ' ')
+            # decode the HTML entities and queue this for the bot to say
             $q_meta.enq $coder.decode(response)
-# do the deli tagging in another thread
+            # do the deli tagging in another thread
             b = Thread.new {
                 deli_tags(myobj[1][0], last_id)
             }
