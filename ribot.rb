@@ -84,7 +84,7 @@ $threads['muc'] = Thread.new {
           end
         }
 
-        if old.nil? and msg.type == :groupchat and msg.from != $options[:whoto] then
+        if old.nil? and msg.type == :groupchat and msg.from != $options[:whoto] and not msg.body.nil? then
             print "+ #{msg.from} #{msg.body}\n"
             urls = rule(msg.body, 'http')
             urls.each do |url|
@@ -108,7 +108,12 @@ $threads['meta'] = Thread.new {
         a = Thread.new {
             myobj = obj.dup
             puts "fetching title for #{myobj[1][0]}"
+            begin
             t, supress_domain = title_from_uri(myobj[1][0])
+            rescue => e
+            puts e
+            Thread.exit
+            end
             puts "fetched title for #{myobj[1][0]}"
 # CREATE TABLE urls (id INTEGER PRIMARY KEY AUTOINCREMENT, url varchar(1024), wh timestamp, user varchar(256), private int, title varchar(1024));
             last_id = nil
