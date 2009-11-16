@@ -99,16 +99,23 @@ $threads['muc'] = Thread.new {
           end
         }
 
-        if  old.nil?                      # not historical lines
-        and msg.type == :groupchat        # comes from the conference
-        and msg.from != $options[:whoto]  # we didn't say it
-        and not msg.body.nil? then        # something was said (not a topic change)
+        if  old.nil?  and
+            msg.type == :groupchat and
+            msg.from != $options[:whoto] and
+            not msg.body.nil? then        # something was said (not a topic change)
             print "+ #{msg.from} #{msg.body}\n"
             urls = rule(msg.body, ['http', 'https'])
             urls.each do |url|
                 # look for any urls, enqueue them onto $q_urls
-                print "MUC enqueuing [#{url[0]}]\n"
-                $q_urls.enq [msg.from, url]
+                check = $dbh.select_one('select id from url where url=?', url)
+                if not check.nil? and not check[0].nil? then
+                    puts "##{check[0]} = #{url}"
+                    who = msg.from.resource
+                    $q_meta.enq "/me punches #{who} for duplicating ##{check[0]}"
+                else
+                    print "MUC enqueuing [#{url[0]}]\n"
+                    $q_urls.enq [msg.from, url]
+                end
             end
         end
     end
