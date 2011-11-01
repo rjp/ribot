@@ -11,6 +11,8 @@ require 'trollop'
 require 'yaml'
 require 'json'
 
+$KCODE='u'
+
 $options = Trollop::options do
     opt :myjid, "My JID", :type => :string
     opt :mypass, "My Pass", :type => :string
@@ -32,13 +34,6 @@ end
 
 p $options
 
-# required for nice handling of unicode
-$KCODE='u'
-
-# we use transactions for safe fetching of last-insert-id things
-$dbh = DBI.connect($options[:dsn], '', '')
-$dbh['AutoCommit'] = false
-
 $get_last_id = nil
 $now = nil
 
@@ -47,9 +42,11 @@ case $options[:dsn]
     when /sqlite/i
         $get_last_id = "SELECT last_insert_rowid()"
         $now = "DATETIME('NOW')"
+        $info = "select id, title, strftime('%Y-%m-%d %H:%M:%S', wh), url, byuser from url where "
     when /pg/i
         $get_last_id = "SELECT CURRVAL('url_seq')"
         $now = "NOW()"
+        $info = "select id, title, to_char(wh, 'YYYY-MM-DD HH24:MI:SS'), url, byuser from url where "
 end
 p $get_last_id
 
@@ -69,7 +66,7 @@ def deli_tags(uri, id)
         json = open(target).read
         deli = JSON.load(json)[0]
         tags = ""
-        if deli['top_tags'].class == Hash then
+        if not deli.nil? and deli['top_tags'].class == Hash then
             all_tags = deli['top_tags'].sort_by {|k,v| v}.reverse.map{|i|i[0]}
             if all_tags.size > 8 then
                 all_tags = all_tags.first(8) << '...'
@@ -85,11 +82,27 @@ def deli_tags(uri, id)
     end
 end
 
+def lookup_id(x) 
+    info = $dbh.select_one($info + "id=?", x)
+
+    if info.nil? then
+        $q_meta.enq "##{id} not found, sorry"
+        return
+    end
+
+    jid = Jabber::JID.new(info[4])
+    domain = URI(info[3]).host.split('.').last(3).join('.')
+    response = "#{x}: [#{domain}]: ``#{info[1]}'' from #{jid.resource}, #{info[2]}"
+    response.gsub!("\n", ' ')
+    $q_meta.enq $coder.decode(response)
+end
+
 $threads['muc'] = Thread.new {
     cl = Jabber::Client.new(Jabber::JID.new($options[:myjid]))
     cl.connect($options[:xmpphost])
     cl.auth($options[:mypass])
     m = Jabber::MUC::SimpleMUCClient.new(cl)
+    m.my_jid = Jabber::JID.new($options[:myjid])
     m.add_message_callback do |msg|
         old = nil
         # sucks that we have to implement this ourselves
@@ -103,19 +116,22 @@ $threads['muc'] = Thread.new {
             msg.type == :groupchat and
             msg.from != $options[:whoto] and
             not msg.body.nil? then        # something was said (not a topic change)
-            print "+ #{msg.from} #{msg.body}\n"
-            urls = rule(msg.body, ['http', 'https'])
-            urls.each do |url|
-                # look for any urls, enqueue them onto $q_urls
-                check = $dbh.select_one('select id from url where url=?', url)
-                if not check.nil? and not check[0].nil? then
-                    puts "##{check[0]} = #{url}"
-                    who = msg.from.resource
-                    $q_meta.enq "/me punches #{who} for duplicating ##{check[0]}"
-                else
-                    print "MUC enqueuing [#{url[0]}]\n"
-                    $q_urls.enq [msg.from, url]
+
+            if msg.body =~ /^\s*#{m.my_jid.resource}\W\s*(.*)/ then
+                query = $1
+                print "? #{query}\n"
+                case query
+                    when /^#(\d+)/ then lookup_id($1)
                 end
+            else
+                print "+ #{msg.from} #{msg.body} #{m.my_jid}\n"
+	            urls = rule(msg.body, ['http', 'https', 'spotify'])
+	            urls.each do |url|
+                    puts "+U #{url} '#{$info} url=?'"
+	                # look for any urls, enqueue them onto $q_urls
+                    print "MUC enqueuing [#{url[0]}]\n"
+	                $q_urls.enq [msg.from, url]
+	            end
             end
         end
     end
@@ -137,17 +153,48 @@ $coder = HTMLEntities.new
 
 # all the work of processing a URL happens in this thread
 $threads['meta'] = Thread.new {
+	# we use transactions for safe fetching of last-insert-id things
+	$dbh = DBI.connect($options[:dsn], 'rjp', '')
+	$dbh['AutoCommit'] = false
+
     i = 0
     loop do
         print "MTA waiting for an item\n"
         obj = $q_urls.deq
+
+
+        check = $dbh.select_one($info + "url=?", obj[1][0])
+
+# FUDGY FUDGE for yaxu
+whitelist=['chordpunch.com']
+if whitelist.include?(URI(obj[1][0]).host) then
+    check = nil
+end
+
+        puts "C #{check.inspect}"
+	    if not check.nil? and not check[0].nil? then
+		    who = obj[0].resource
+	        jid = Jabber::JID.new(check[4])
+print "#{check[4]} => #{jid.inspect}"
+
+
+            if URI(check[3]).host.nil? then
+	            response = "/me old-punches #{who}: ##{check[0]}: #{check[1]} from #{jid.resource}, #{check[2]}"
+            else
+			    domain = URI(check[3]).host.split('.').last(3).join('.')
+		        response = "/me old-punches #{who}: ##{check[0]}: [#{domain}]: #{check[1]} from #{check[4]}, #{check[2]}"
+            end
+		    response.gsub!("\n", ' ')
+		    $q_meta.enq $coder.decode(response)
+            next
+        end
         puts "meta for " + obj.join(', ') + " b=#{$bot}"
         # spawn off a new thread to handle the fetching to avoid blocking
         a = Thread.new {
             begin
             myobj = obj.dup
             puts "fetching title for #{myobj[1][0]}"
-            t, supress_domain = title_from_uri(myobj[1][0])
+            t, supress_domain = title_from_uri(myobj[1][0], myobj[1][1])
             puts "fetched title for #{myobj[1][0]}"
             last_id = nil
             # insert the URL and get the inserted ID
@@ -160,15 +207,16 @@ $threads['meta'] = Thread.new {
                 last_id = $dbh.select_one($get_last_id)
             end
             my_id = last_id[0]
-            # last 3 parts of the hostname should be unambiguous
-            domain = obj[1][1].host.split('.').last(3).join('.')
-            # default formatting is stolen from old scribot
-            # 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
-            response = "#{my_id}: [#{domain}]: #{t}"
             # plugins can suppress the domain information because it's often unnecessary
             # 12345: (flickr) "photo title" by photo maker
             if supress_domain then
                 response = "#{my_id}: #{t}"
+            else
+	            # last 3 parts of the hostname should be unambiguous
+	            domain = obj[1][1].host.split('.').last(3).join('.')
+	            # default formatting is stolen from old scribot
+	            # 16:24 < scribot> 67041: [www.youtube.com]: vs (YouTube - Maya The Tamperer (Can You Feel It))
+	            response = "#{my_id}: [#{domain}]: #{t}"
             end
             # people like guardian.co.uk insist on putting newlines in the title
             response.gsub!("\n", ' ')
@@ -178,8 +226,9 @@ $threads['meta'] = Thread.new {
             b = Thread.new {
                 deli_tags(myobj[1][0], last_id)
             }
-            rescue
+            rescue => e
                 puts "problem getting information for #{myobj[1][0]}"
+                puts e
             end
         }
         print "MTA incrementing and relooping\n"
@@ -189,3 +238,8 @@ $threads['meta'] = Thread.new {
 
 $threads['muc'].join
 $threads['meta'].join
+
+loop do
+ sleep 15
+ puts "awake"
+end
